@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<title>Opportunity Scanner</title>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--text:#111827;--muted:#64748b;--line:#e2e8f0;--accent:#2563eb;--good:#15803d;--warn:#b45309;--bad:#b91c1c}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{max-width:900px;margin:auto;padding:18px 14px 40px}
+h1{font-size:28px;margin:5px 0}.sub{color:var(--muted);margin:0 0 18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 2px 10px #00000008}
+label{display:block;font-size:13px;font-weight:700;margin:10px 0 6px}
+input,select,button,textarea{font:inherit}input,select,textarea{width:100%;padding:11px 12px;border:1px solid #cbd5e1;border-radius:10px;background:#fff}
+button{border:0;border-radius:10px;padding:11px 15px;font-weight:700;cursor:pointer}.primary{background:var(--accent);color:white}.secondary{background:#e2e8f0;color:#0f172a}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.small{font-size:12px;color:var(--muted);line-height:1.45}.status{margin-top:10px;color:var(--muted)}
+table{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}th,td{text-align:left;padding:9px 6px;border-bottom:1px solid var(--line);white-space:nowrap}th{font-size:11px;text-transform:uppercase;color:var(--muted)}
+.score{font-weight:800}.good{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.pill{display:inline-block;padding:3px 7px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:11px;font-weight:800}
+@media(max-width:650px){.row{grid-template-columns:1fr}table{font-size:12px}.card{padding:13px}main{padding:12px 10px 30px}}
+</style>
+<link rel="manifest" href="manifest.webmanifest"><script>if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");</script></head>
+<body>
+<main>
+<h1>Opportunity Scanner</h1>
+<p class="sub">Aggressive-growth scanner: find momentum, catalysts, liquidity and asymmetric setups.</p>
+
+<div class="card">
+<label>Data provider API key</label>
+<input id="key" type="password" placeholder="Paste your Twelve Data API key">
+<p class="small">For your aggressive style, use the scanner to generate candidates—not automatic buy orders. Keep individual positions sized so one loss cannot wreck the account. The key stays in this browser. Requests go directly from this browser to Twelve Data. The scanner downloads several tickers per request to reduce rate-limit failures.</p>
+
+<div class="row">
+<div><label>Risk style</label>
+<select id="risk"><option value="aggressive">Aggressive</option><option value="veryaggressive">Very aggressive</option></select></div>
+<div><label>Minimum liquidity ($/day)</label>
+<select id="liq"><option value="10000000">$10M</option><option value="5000000">$5M</option><option value="1000000">$1M</option></select></div>
+</div>
+<div class="row">
+<div><label>Scan universe</label>
+<select id="universe">
+<option value="market">US market (NASDAQ/NYSE/AMEX)</option>
+<option value="growth">Growth / momentum (25)</option>
+<option value="large">Large-cap leaders (25)</option>
+<option value="custom">My tickers</option>
+</select></div>
+<div><label>Minimum score</label>
+<select id="minscore"><option>70</option><option>60</option><option>50</option><option>40</option></select></div>
+</div>
+<div id="customWrap" style="display:none"><label>Custom tickers</label><textarea id="custom" rows="3" placeholder="NVDA, AMD, PLTR, SOFI, RKLB"></textarea></div>
+<div class="actions"><button class="primary" id="scan">Scan market</button><button class="secondary" id="clear">Clear</button></div>
+<div class="status" id="status">Ready.</div>
+</div>
+
+<div class="card">
+<h3 style="margin:0">How the score works</h3>
+<p class="small">100-point aggressive-growth model: trend, momentum, breakout proximity, volume confirmation, liquidity and volatility. Higher scores mean stronger setup characteristics—not guaranteed returns. It is a screening model—not a prediction or a buy signal.</p>
+<div id="results"></div>
+</div>
+
+<div class="card">
+<h3 style="margin:0">My current portfolio guardrails</h3>
+<ul class="small">
+<li>Do not add automatically just because a holding is down.</li>
+<li>Prefer liquid names and defined risk for options.</li>
+<li>Cap any single speculative position rather than letting it dominate the account.</li>
+<li>Use the scanner to generate candidates; verify earnings, news, valuation, and thesis before buying.</li>
+</ul>
+</div>
+</main>
+
+
+<script>
+const UNIVERSES={
+growth:["NVDA","AMD","AVGO","PLTR","CRWD","NET","DDOG","SNOW","SHOP","APP","HOOD","SOFI","RKLB","ASTS","IONQ","MU","TSM","ARM","CELH","DUOL","TEM","RGTI","LUNR","MSTR"],
+large:["AAPL","MSFT","NVDA","AMZN","GOOGL","META","AVGO","TSLA","BRK.B","JPM","LLY","V","MA","COST","NFLX","WMT","XOM","JNJ","ORCL","HD","PG","BAC","KO","CSCO","IBM"]
+};
+const $=id=>document.getElementById(id);
+
+$("key").value=localStorage.getItem("tdkey")||"";
+$("key").onchange=()=>localStorage.setItem("tdkey",$("key").value.trim());
+$("custom").value=localStorage.getItem("myTickers")||"";
+$("custom").oninput=()=>localStorage.setItem("myTickers",$("custom").value.trim());
+
+function updateUniverseUI(){
+  $("customWrap").style.display=$("universe").value==="custom"?"block":"none";
+}
+$("universe").onchange=updateUniverseUI;
+updateUniverseUI();
+
+$("clear").onclick=()=>{
+  $("results").innerHTML="";
+  $("status").textContent="Ready.";
+};
+
+function mean(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:0}
+function sma(a,n){return mean(a.slice(-n))}
+function rsi(a,n=14){
+  if(a.length<n+1)return 50;
+  let g=0,l=0;
+  for(let i=a.length-n;i<a.length;i++){let d=a[i]-a[i-1];if(d>0)g+=d;else l-=d}
+  if(l===0)return 100;
+  return 100-(100/(1+g/l));
+}
+function atr(rows,n=14){
+  let trs=[];
+  for(let i=1;i<rows.length;i++){
+    let h=+rows[i].high,l=+rows[i].low,pc=+rows[i-1].close;
+    trs.push(Math.max(h-l,Math.abs(h-pc),Math.abs(l-pc)));
+  }
+  return mean(trs.slice(-n));
+}
+function normalizeRows(values){
+  if(!Array.isArray(values))return [];
+  return values.filter(x=>x&&x.close!=null)
+    .map(x=>({...x,close:+x.close,high:+x.high,low:+x.low,volume:+x.volume||0}))
+    .reverse();
+}
+
+async function apiJson(url){
+  const r=await fetch(url);
+  let j=null;
+  try{j=await r.json()}catch{}
+  if(!r.ok)throw new Error(j?.message||`HTTP ${r.status}`);
+  if(j?.status==="error")throw new Error(j.message||"Provider error");
+  return j;
+}
+
+/* Discover the current US common-stock universe instead of keeping a tiny
+   hard-coded list. This is best-effort because Twelve Data/API plans impose
+   request and credit limits. */
+async function discoverUSStocks(key){
+  const exchanges=["NASDAQ","NYSE","AMEX"];
+  const all=[];
+  for(const ex of exchanges){
+    $("status").textContent=`Getting ${ex} stock list…`;
+    try{
+      const j=await apiJson(`https://api.twelvedata.com/stocks?exchange=${encodeURIComponent(ex)}&country=United%20States&apikey=${encodeURIComponent(key)}`);
+      const rows=Array.isArray(j?.data)?j.data:[];
+      for(const x of rows){
+        const sym=String(x.symbol||"").trim().toUpperCase();
+        const type=String(x.type||"").toLowerCase();
+        const currency=String(x.currency||"").toUpperCase();
+        if(sym && (!type || type.includes("common") || type==="stock") && (!currency || currency==="USD")){
+          all.push(sym);
+        }
+      }
+    }catch(e){
+      console.warn("Universe discovery failed",ex,e);
+    }
+  }
+  return [...new Set(all)].filter(s=>/^[A-Z0-9][A-Z0-9.\-]{0,14}$/.test(s));
+}
+
+function extractBatch(j,symbols){
+  const map={};
+  if(Array.isArray(j?.values)){
+    map[symbols[0]]={rows:normalizeRows(j.values)};
+    return map;
+  }
+  for(const sym of symbols){
+    const candidates=[sym, sym.replace(".","/"), sym.replace("/","."), sym.replace(".","")];
+    let item=null;
+    for(const c of candidates)if(j&&j[c]){item=j[c];break}
+    if(item?.values)map[sym]={rows:normalizeRows(item.values)};
+    else if(item?.status==="error"||item?.message)map[sym]={error:item.message||"No data"};
+    else map[sym]={error:"No data returned"};
+  }
+  return map;
+}
+
+async function getBatch(symbols,key){
+  const url=`https://api.twelvedata.com/time_series?symbol=${symbols.map(encodeURIComponent).join(",")}&interval=1day&outputsize=90&apikey=${encodeURIComponent(key)}`;
+  return await apiJson(url);
+}
+
+function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
+
+async function scanSymbols(symbols,key){
+  const results=[];
+  const BATCH=5;
+  for(let i=0;i<symbols.length;i+=BATCH){
+    const batch=symbols.slice(i,i+BATCH);
+    $("status").textContent=`Downloading ${Math.min(i+BATCH,symbols.length)} of ${symbols.length} symbols…`;
+    let done=false,lastErr="";
+    for(let attempt=1;attempt<=3&&!done;attempt++){
+      try{
+        const data=extractBatch(await getBatch(batch,key),batch);
+        for(const sym of batch){
+          if(data[sym]?.rows?.length>=55)results.push({sym,rows:data[sym].rows});
+          else results.push({sym,error:data[sym]?.error||"Not enough daily history"});
+        }
+        done=true;
+      }catch(e){
+        lastErr=e.message||"Request failed";
+        if(attempt<3)await sleep(1500*attempt);
+      }
+    }
+    if(!done)for(const sym of batch)results.push({sym,error:lastErr});
+    if(i+BATCH<symbols.length)await sleep(800);
+  }
+  return results;
+}
+
+function score(rows){
+  const close=rows.map(x=>+x.close),vol=rows.map(x=>+x.volume||0);
+  const p=close.at(-1),s20=sma(close,20),s50=sma(close,50),r=rsi(close),hi20=Math.max(...close.slice(-20));
+  const avgv=mean(vol.slice(-20)),rv=avgv?vol.at(-1)/avgv:0,a=atr(rows),atrp=p?a/p*100:0;
+  let s=0;
+  const risk=$("risk").value,liqMin=+$("liq").value;
+  s+=s20>s50?25:0;
+  s+=p>s20?15:0;
+  s+=r>=50&&r<=70?20:r>70?10:r>=40?10:0;
+  s+=p>=hi20*.97?20:p>=hi20*.93?12:0;
+  s+=rv>=1.5?10:rv>=1?6:0;
+  s+=p>=5&&avgv*p>=liqMin?10:0;
+  if(risk==="veryaggressive"){s+=atrp>=4&&atrp<=12?5:0;s+=rv>=2?5:0}
+  const category=s>=85?"🔥 High-conviction setup":s>=70?"🟢 Strong candidate":s>=55?"🟡 Speculative":"⚪ Watch";
+  return {p,s20,s50,r,hi20,rv,atrp,score:s,category};
+}
+
+function showResults(out,min){
+  out.sort((a,b)=>(b.score??-1)-(a.score??-1));
+  const good=out.filter(x=>x.score>=min);
+  let h=`<p><b>${good.length}</b> candidates scoring at least ${min}. Last price and indicators are from downloaded daily data.</p>`;
+  if(good.length){
+    h+=`<div style="overflow-x:auto"><table><thead><tr><th>Ticker</th><th>Score</th><th>Setup</th><th>Price</th><th>RSI</th><th>20d high</th><th>Rel vol</th><th>ATR%</th></tr></thead><tbody>`;
+    for(const x of good)h+=`<tr><td><b>${x.sym}</b></td><td class="score ${x.score>=70?"good":"warn"}">${x.score}</td><td>${x.category}</td><td>$${x.p.toFixed(2)}</td><td>${x.r.toFixed(1)}</td><td>$${x.hi20.toFixed(2)}</td><td>${x.rv.toFixed(2)}x</td><td>${x.atrp.toFixed(1)}%</td></tr>`;
+    h+=`</tbody></table></div>`;
+  }
+  const errors=out.filter(x=>x.error);
+  if(errors.length){
+    h+=`<p class="small"><b>${errors.length} symbols could not be downloaded:</b> ${errors.slice(0,80).map(x=>`${x.sym} (${x.error})`).join(", ")}${errors.length>80?" …":""}</p>`;
+  }
+  $("results").innerHTML=h;
+}
+
+$("scan").onclick=async()=>{
+  const btn=$("scan");
+  const key=$("key").value.trim();
+  if(!key){$("status").textContent="Enter a Twelve Data API key first.";return}
+  btn.disabled=true;
+  try{
+    let syms;
+    const mode=$("universe").value;
+    if(mode==="custom"){
+      syms=$("custom").value.split(/[\s,]+/).filter(Boolean);
+    }else if(mode==="market"){
+      $("results").innerHTML="<p>Building the current US stock universe…</p>";
+      syms=await discoverUSStocks(key);
+      if(!syms.length){
+        $("status").textContent="Could not get the US stock list. Check the API key and provider limits.";
+        return;
+      }
+    }else{
+      syms=UNIVERSES[mode];
+    }
+    syms=[...new Set(syms.map(x=>x.trim().toUpperCase()).filter(Boolean))];
+    if(!syms.length){
+      $("status").textContent="My tickers is empty. Type symbols in the box above first.";
+      $("results").innerHTML="<p class=\"small\"><b>My tickers is empty.</b> Type symbols such as NVDA, PLTR, NET, CRWD, SNOW and tap Scan market.</p>";
+      return;
+    }
+    $("results").innerHTML="";
+    $("status").textContent=`Starting scan of ${syms.length} symbols…`;
+    const downloaded=await scanSymbols(syms,key);
+    const out=[];
+    for(const item of downloaded){
+      if(item.rows){
+        try{out.push({sym:item.sym,...score(item.rows)})}
+        catch(e){out.push({sym:item.sym,error:e.message||"Could not score data"})}
+      }else out.push({sym:item.sym,error:item.error||"Download failed"});
+    }
+    showResults(out,+$("minscore").value);
+    const failed=out.filter(x=>x.error).length;
+    $("status").textContent=failed
+      ?`Finished ${out.length} symbols — ${failed} could not be downloaded.`
+      :`Finished ${out.length} symbols successfully.`;
+  }finally{
+    btn.disabled=false;
+  }
+};
+
+</script>
+</body></html>
