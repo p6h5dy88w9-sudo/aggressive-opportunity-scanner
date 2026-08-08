@@ -41,6 +41,7 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}th,td{te
 <div class="row">
 <div><label>Scan universe</label>
 <select id="universe">
+<option value="market">US market (NASDAQ/NYSE/AMEX)</option>
 <option value="growth">Growth / momentum (25)</option>
 <option value="large">Large-cap leaders (25)</option>
 <option value="custom">My tickers</option>
@@ -111,71 +112,94 @@ function atr(rows,n=14){
   }
   return mean(trs.slice(-n));
 }
-
 function normalizeRows(values){
   if(!Array.isArray(values))return [];
-  return values
-    .filter(x=>x && x.close!=null)
+  return values.filter(x=>x&&x.close!=null)
     .map(x=>({...x,close:+x.close,high:+x.high,low:+x.low,volume:+x.volume||0}))
     .reverse();
 }
 
-/*
-  Twelve Data can return several symbols from one time_series request.
-  Batching is important on free plans because the old code made one API
-  request per ticker and quickly hit request-rate limits.
-*/
-async function getBatch(symbols,key){
-  const url=`https://api.twelvedata.com/time_series?symbol=${symbols.map(encodeURIComponent).join(",")}&interval=1day&outputsize=90&apikey=${encodeURIComponent(key)}`;
+async function apiJson(url){
   const r=await fetch(url);
-  let j;
-  try{j=await r.json()}catch{throw new Error(`Provider returned HTTP ${r.status}`)}
+  let j=null;
+  try{j=await r.json()}catch{}
   if(!r.ok)throw new Error(j?.message||`HTTP ${r.status}`);
+  if(j?.status==="error")throw new Error(j.message||"Provider error");
   return j;
+}
+
+/* Discover the current US common-stock universe instead of keeping a tiny
+   hard-coded list. This is best-effort because Twelve Data/API plans impose
+   request and credit limits. */
+async function discoverUSStocks(key){
+  const exchanges=["NASDAQ","NYSE","AMEX"];
+  const all=[];
+  for(const ex of exchanges){
+    $("status").textContent=`Getting ${ex} stock list…`;
+    try{
+      const j=await apiJson(`https://api.twelvedata.com/stocks?exchange=${encodeURIComponent(ex)}&country=United%20States&apikey=${encodeURIComponent(key)}`);
+      const rows=Array.isArray(j?.data)?j.data:[];
+      for(const x of rows){
+        const sym=String(x.symbol||"").trim().toUpperCase();
+        const type=String(x.type||"").toLowerCase();
+        const currency=String(x.currency||"").toUpperCase();
+        if(sym && (!type || type.includes("common") || type==="stock") && (!currency || currency==="USD")){
+          all.push(sym);
+        }
+      }
+    }catch(e){
+      console.warn("Universe discovery failed",ex,e);
+    }
+  }
+  return [...new Set(all)].filter(s=>/^[A-Z0-9][A-Z0-9.\-]{0,14}$/.test(s));
 }
 
 function extractBatch(j,symbols){
   const map={};
-  // Single-symbol response
   if(Array.isArray(j?.values)){
     map[symbols[0]]={rows:normalizeRows(j.values)};
     return map;
   }
-  // Multi-symbol response: Twelve Data returns an object keyed by symbol.
   for(const sym of symbols){
     const candidates=[sym, sym.replace(".","/"), sym.replace("/","."), sym.replace(".","")];
     let item=null;
-    for(const c of candidates)if(j && j[c]){item=j[c];break}
+    for(const c of candidates)if(j&&j[c]){item=j[c];break}
     if(item?.values)map[sym]={rows:normalizeRows(item.values)};
     else if(item?.status==="error"||item?.message)map[sym]={error:item.message||"No data"};
     else map[sym]={error:"No data returned"};
   }
-  // Some API errors apply to the whole batch.
-  if(j?.status==="error" && !Object.keys(map).length){
-    for(const sym of symbols)map[sym]={error:j.message||"API error"};
-  }
   return map;
 }
 
+async function getBatch(symbols,key){
+  const url=`https://api.twelvedata.com/time_series?symbol=${symbols.map(encodeURIComponent).join(",")}&interval=1day&outputsize=90&apikey=${encodeURIComponent(key)}`;
+  return await apiJson(url);
+}
+
+function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
+
 async function scanSymbols(symbols,key){
   const results=[];
-  // Keep batches small enough for URL limits and provider response size.
   const BATCH=5;
   for(let i=0;i<symbols.length;i+=BATCH){
     const batch=symbols.slice(i,i+BATCH);
     $("status").textContent=`Downloading ${Math.min(i+BATCH,symbols.length)} of ${symbols.length} symbols…`;
-    try{
-      const data=extractBatch(await getBatch(batch,key),batch);
-      for(const sym of batch){
-        if(data[sym]?.rows?.length>=55)results.push({sym,rows:data[sym].rows});
-        else results.push({sym,error:data[sym]?.error||"Not enough daily history"});
+    let done=false,lastErr="";
+    for(let attempt=1;attempt<=3&&!done;attempt++){
+      try{
+        const data=extractBatch(await getBatch(batch,key),batch);
+        for(const sym of batch){
+          if(data[sym]?.rows?.length>=55)results.push({sym,rows:data[sym].rows});
+          else results.push({sym,error:data[sym]?.error||"Not enough daily history"});
+        }
+        done=true;
+      }catch(e){
+        lastErr=e.message||"Request failed";
+        if(attempt<3)await sleep(1500*attempt);
       }
-    }catch(e){
-      // One failed batch should not kill the whole scan.
-      for(const sym of batch)results.push({sym,error:e.message||"Request failed"});
-      // A short pause helps avoid hammering a rate-limited provider.
-      if(i+BATCH<symbols.length)await new Promise(r=>setTimeout(r,1200));
     }
+    if(!done)for(const sym of batch)results.push({sym,error:lastErr});
+    if(i+BATCH<symbols.length)await sleep(800);
   }
   return results;
 }
@@ -208,38 +232,56 @@ function showResults(out,min){
   }
   const errors=out.filter(x=>x.error);
   if(errors.length){
-    h+=`<p class="small"><b>${errors.length} symbols could not be downloaded:</b> ${errors.map(x=>`${x.sym} (${x.error})`).join(", ")}</p>`;
+    h+=`<p class="small"><b>${errors.length} symbols could not be downloaded:</b> ${errors.slice(0,80).map(x=>`${x.sym} (${x.error})`).join(", ")}${errors.length>80?" …":""}</p>`;
   }
   $("results").innerHTML=h;
 }
 
 $("scan").onclick=async()=>{
+  const btn=$("scan");
   const key=$("key").value.trim();
   if(!key){$("status").textContent="Enter a Twelve Data API key first.";return}
-  let syms=$("universe").value==="custom"
-    ?$("custom").value.split(/[\s,]+/).filter(Boolean)
-    :UNIVERSES[$("universe").value];
-  syms=[...new Set(syms.map(x=>x.trim().toUpperCase()).filter(Boolean))];
-  if(!syms.length){
-    $("status").textContent="My tickers is empty. Add symbols above first.";
-    $("results").innerHTML="<p class=\"small\"><b>My tickers is empty.</b> Type symbols such as NVDA, PLTR, NET, CRWD, SNOW and tap Scan market.</p>";
-    return;
+  btn.disabled=true;
+  try{
+    let syms;
+    const mode=$("universe").value;
+    if(mode==="custom"){
+      syms=$("custom").value.split(/[\s,]+/).filter(Boolean);
+    }else if(mode==="market"){
+      $("results").innerHTML="<p>Building the current US stock universe…</p>";
+      syms=await discoverUSStocks(key);
+      if(!syms.length){
+        $("status").textContent="Could not get the US stock list. Check the API key and provider limits.";
+        return;
+      }
+    }else{
+      syms=UNIVERSES[mode];
+    }
+    syms=[...new Set(syms.map(x=>x.trim().toUpperCase()).filter(Boolean))];
+    if(!syms.length){
+      $("status").textContent="My tickers is empty. Type symbols in the box above first.";
+      $("results").innerHTML="<p class=\"small\"><b>My tickers is empty.</b> Type symbols such as NVDA, PLTR, NET, CRWD, SNOW and tap Scan market.</p>";
+      return;
+    }
+    $("results").innerHTML="";
+    $("status").textContent=`Starting scan of ${syms.length} symbols…`;
+    const downloaded=await scanSymbols(syms,key);
+    const out=[];
+    for(const item of downloaded){
+      if(item.rows){
+        try{out.push({sym:item.sym,...score(item.rows)})}
+        catch(e){out.push({sym:item.sym,error:e.message||"Could not score data"})}
+      }else out.push({sym:item.sym,error:item.error||"Download failed"});
+    }
+    showResults(out,+$("minscore").value);
+    const failed=out.filter(x=>x.error).length;
+    $("status").textContent=failed
+      ?`Finished ${out.length} symbols — ${failed} could not be downloaded.`
+      :`Finished ${out.length} symbols successfully.`;
+  }finally{
+    btn.disabled=false;
   }
-  $("results").innerHTML="";
-  $("status").textContent=`Starting scan of ${syms.length} symbols…`;
-  const downloaded=await scanSymbols(syms,key);
-  const out=[];
-  for(const item of downloaded){
-    if(item.rows){
-      try{out.push({sym:item.sym,...score(item.rows)})}
-      catch(e){out.push({sym:item.sym,error:e.message||"Could not score data"})}
-    }else out.push({sym:item.sym,error:item.error||"Download failed"});
-  }
-  showResults(out,+$("minscore").value);
-  const failed=out.filter(x=>x.error).length;
-  $("status").textContent=failed
-    ?`Finished ${out.length} symbols — ${failed} could not be downloaded.`
-    :`Finished ${out.length} symbols successfully.`;
 };
+
 </script>
 </body></html>
