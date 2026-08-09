@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<title>Opportunity Scanner V6</title>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--text:#111827;--muted:#64748b;--line:#e2e8f0;--accent:#2563eb;--good:#15803d;--warn:#b45309;--bad:#b91c1c}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{max-width:900px;margin:auto;padding:18px 14px 40px}
+h1{font-size:28px;margin:5px 0}.sub{color:var(--muted);margin:0 0 18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 2px 10px #00000008}
+label{display:block;font-size:13px;font-weight:700;margin:10px 0 6px}
+input,select,button,textarea{font:inherit}input,select,textarea{width:100%;padding:11px 12px;border:1px solid #cbd5e1;border-radius:10px;background:#fff}
+button{border:0;border-radius:10px;padding:11px 15px;font-weight:700;cursor:pointer}.primary{background:var(--accent);color:white}.secondary{background:#e2e8f0;color:#0f172a}button:disabled{opacity:.55;cursor:not-allowed}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.small{font-size:12px;color:var(--muted);line-height:1.45}.status{margin-top:10px;color:var(--muted);line-height:1.45}
+.budgetBox{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#f8fafc;font-size:12px;color:var(--muted);line-height:1.45}
+table{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}th,td{text-align:left;padding:9px 6px;border-bottom:1px solid var(--line);white-space:nowrap}th{font-size:11px;text-transform:uppercase;color:var(--muted)}
+.score{font-weight:800}.good{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.pill{display:inline-block;padding:3px 7px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:11px;font-weight:800}
+@media(max-width:650px){.row{grid-template-columns:1fr}table{font-size:12px}.card{padding:13px}main{padding:12px 10px 30px}}
+</style>
+<link rel="manifest" href="manifest.webmanifest"><script>if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js?v=6").then(r=>r.update()).catch(()=>{});</script></head>
+<body>
+<main>
+<h1>Opportunity Scanner <span class="pill">V6 credit-aware</span></h1>
+<p class="sub">Aggressive-growth scanner: find momentum, catalysts, liquidity and asymmetric setups while controlling API usage.</p>
+
+<div class="card">
+<label>Data provider API key</label>
+<input id="key" type="password" placeholder="Paste your Twelve Data API key">
+<p class="small">The key stays in this browser. V6 discovers the full U.S. stock universe, then uses a rotating daily sample for price-history screening when a credit budget is enabled. It caches same-day history so rerunning the same scan does not automatically redownload everything. Small and micro caps are not excluded by market cap; market-cap tiers are applied only after a candidate survives the broad screen.</p>
+
+<div class="row">
+<div><label>Risk style</label>
+<select id="risk"><option value="aggressive">Aggressive</option><option value="veryaggressive">Very aggressive</option></select></div>
+<div><label>Minimum liquidity ($/day)</label>
+<select id="liq"><option value="10000000">$10M</option><option value="5000000">$5M</option><option value="1000000">$1M</option></select></div>
+</div>
+<div class="row">
+<div><label>Scan universe</label>
+<select id="universe">
+<option value="market">US market (NASDAQ/NYSE/AMEX)</option>
+<option value="growth">Growth / momentum (25)</option>
+<option value="large">Large-cap leaders (25)</option>
+<option value="custom">My tickers</option>
+</select></div>
+<div><label>Minimum score</label>
+<select id="minscore"><option>70</option><option>60</option><option>50</option><option>40</option></select></div>
+</div>
+<div class="row">
+<div><label>Estimated API budget / day</label>
+<select id="budget">
+<option value="650">650 — safe target for an 800-credit daily limit</option>
+<option value="500">500 — conservative</option>
+<option value="300">300 — low usage</option>
+<option value="150">150 — test mode</option>
+<option value="0">No scanner cap — paid/high-limit plan</option>
+</select></div>
+<div><label>Budget strategy</label>
+<select id="strategy">
+<option value="rotate">Rotating full-market coverage</option>
+<option value="front">Same first symbols each day</option>
+</select></div>
+</div>
+<div id="customWrap" style="display:none"><label>Custom tickers</label><textarea id="custom" rows="3" placeholder="NVDA, AMD, PLTR, SOFI, RKLB"></textarea></div>
+<div class="budgetBox" id="budgetInfo">V6 will estimate usage before downloading price history. Twelve Data's own meter remains the authoritative limit.</div>
+<div class="actions"><button class="primary" id="scan">Scan market</button><button class="secondary" id="clear">Clear</button></div>
+<div class="status" id="status">Ready.</div>
+</div>
+
+<div class="card">
+<h3 style="margin:0">How the score works</h3>
+<p class="small">100-point aggressive-growth model: trend, 20/60-day momentum, breakout proximity, relative volume, market-cap tier, liquidity and volatility. V6 uses a broad 35-day screen first and requests 90-day history plus market cap only for the strongest survivors. Higher scores mean stronger setup characteristics—not guaranteed returns. It is a screening model—not a prediction or a buy signal.</p>
+<div id="results"></div>
+</div>
+
+<div class="card">
+<h3 style="margin:0">My current portfolio guardrails</h3>
+<ul class="small">
+<li>Do not add automatically just because a holding is down.</li>
+<li>Prefer liquid names and defined risk for options.</li>
+<li>Cap any single speculative position rather than letting it dominate the account.</li>
+<li>Use the scanner to generate candidates; verify earnings, news, valuation, and thesis before buying.</li>
+</ul>
+</div>
+</main>
+
+<script>
+const VERSION="6";
+const UNIVERSES={
+  growth:["NVDA","AMD","AVGO","PLTR","CRWD","NET","DDOG","SNOW","SHOP","APP","HOOD","SOFI","RKLB","ASTS","IONQ","MU","TSM","ARM","CELH","DUOL","TEM","RGTI","LUNR","MSTR"],
+  large:["AAPL","MSFT","NVDA","AMZN","GOOGL","META","AVGO","TSLA","BRK.B","JPM","LLY","V","MA","COST","NFLX","WMT","XOM","JNJ","ORCL","HD","PG","BAC","KO","CSCO","IBM"]
+};
+const $=id=>document.getElementById(id);
+const DAY=()=>new Date().toISOString().slice(0,10);
+const HISTORY_KEY="osHistoryCacheV6";
+const CAP_KEY="osCapCacheV6";
+const UNIVERSE_KEY="osUniverseCacheV6";
+const LEDGER_KEY="osCreditLedgerV6";
+
+$("key").value=localStorage.getItem("tdkey")||"";
+$("key").onchange=()=>localStorage.setItem("tdkey",$("key").value.trim());
+$("custom").value=localStorage.getItem("myTickers")||"";
+$("custom").oninput=()=>localStorage.setItem("myTickers",$("custom").value.trim());
+$("budget").value=localStorage.getItem("osBudgetV6")||"650";
+$("strategy").value=localStorage.getItem("osStrategyV6")||"rotate";
+$("budget").onchange=()=>{localStorage.setItem("osBudgetV6",$("budget").value);updateBudgetInfo();};
+$("strategy").onchange=()=>localStorage.setItem("osStrategyV6",$("strategy").value);
+
+function safeJSON(text,fallback){try{return JSON.parse(text)}catch{return fallback}}
+function sameDayStore(key,initial){
+  const obj=safeJSON(localStorage.getItem(key),null);
+  if(obj?.day===DAY()&&obj.data)return obj.data;
+  return initial;
+}
+let historyCache=sameDayStore(HISTORY_KEY,{});
+let capCache=sameDayStore(CAP_KEY,{});
+function persistCaches(){
+  try{localStorage.setItem(HISTORY_KEY,JSON.stringify({day:DAY(),data:historyCache}));}catch(e){console.warn("History cache could not be saved",e);}
+  try{localStorage.setItem(CAP_KEY,JSON.stringify({day:DAY(),data:capCache}));}catch(e){console.warn("Market-cap cache could not be saved",e);}
+}
+
+function readLedger(){
+  const l=safeJSON(localStorage.getItem(LEDGER_KEY),null);
+  return l?.day===DAY()?{day:DAY(),used:+l.used||0}:{day:DAY(),used:0};
+}
+function writeLedger(l){try{localStorage.setItem(LEDGER_KEY,JSON.stringify(l));}catch{}}
+
+class CreditBudget{
+  constructor(limit){this.limit=limit>0?limit:Infinity;this.ledger=readLedger();this.startUsed=this.ledger.used;this.cacheHits=0;}
+  remaining(){return Number.isFinite(this.limit)?Math.max(0,this.limit-this.ledger.used):Infinity}
+  spend(cost,label){
+    if(!Number.isFinite(cost)||cost<0)cost=0;
+    if(Number.isFinite(this.limit)&&this.ledger.used+cost>this.limit){
+      throw new Error(`V6 budget guard stopped the scan before ${label}. Estimated daily usage would exceed ${this.limit}. Current V6 estimate: ${this.ledger.used}/${this.limit}.`);
+    }
+    this.ledger.used+=cost;writeLedger(this.ledger);
+  }
+  hit(n=1){this.cacheHits+=n;}
+  usedThisRun(){return this.ledger.used-this.startUsed;}
+}
+
+function updateUniverseUI(){
+  $("customWrap").style.display=$("universe").value==="custom"?"block":"none";
+}
+$("universe").onchange=updateUniverseUI;
+updateUniverseUI();
+
+function updateBudgetInfo(){
+  const limit=+$ ("budget").value;
+  const ledger=readLedger();
+  if(limit>0){
+    const rem=Math.max(0,limit-ledger.used);
+    $("budgetInfo").innerHTML=`Estimated V6 usage today: <b>${ledger.used}</b> / <b>${limit}</b>; about <b>${rem}</b> remain in the scanner's local budget. This is an estimate, not Twelve Data's official meter. Same-day cached series cost 0 additional estimated credits.`;
+  }else{
+    $("budgetInfo").innerHTML=`Scanner budget guard is <b>off</b>. Use this only with a paid/high-limit plan. Same-day cache is still active.`;
+  }
+}
+updateBudgetInfo();
+
+$("clear").onclick=()=>{
+  $("results").innerHTML="";
+  $("status").textContent="Ready.";
+};
+
+function mean(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:0}
+function sma(a,n){return mean(a.slice(-n))}
+function rsi(a,n=14){
+  if(a.length<n+1)return 50;
+  let g=0,l=0;
+  for(let i=a.length-n;i<a.length;i++){let d=a[i]-a[i-1];if(d>0)g+=d;else l-=d}
+  if(l===0)return 100;
+  return 100-(100/(1+g/l));
+}
+function atr(rows,n=14){
+  let trs=[];
+  for(let i=1;i<rows.length;i++){
+    let h=+rows[i].high,l=+rows[i].low,pc=+rows[i-1].close;
+    trs.push(Math.max(h-l,Math.abs(h-pc),Math.abs(l-pc)));
+  }
+  return mean(trs.slice(-n));
+}
+function normalizeRows(values){
+  if(!Array.isArray(values))return [];
+  return values.filter(x=>x&&x.close!=null)
+    .map(x=>({datetime:x.datetime,close:+x.close,high:+x.high,low:+x.low,volume:+x.volume||0}))
+    .reverse();
+}
+
+async function apiJson(url){
+  const r=await fetch(url);
+  let j=null;
+  try{j=await r.json()}catch{}
+  if(!r.ok)throw new Error(j?.message||`HTTP ${r.status}`);
+  if(j?.status==="error")throw new Error(j.message||"Provider error");
+  return j;
+}
+
+async function discoverUSStocks(key,budget){
+  const cached=safeJSON(localStorage.getItem(UNIVERSE_KEY),null);
+  if(cached?.day===DAY()&&Array.isArray(cached.records)&&cached.records.length){budget.hit(cached.records.length);return {records:cached.records,errors:[],cached:true};}
+  const exchanges=["NASDAQ","NYSE","AMEX"];
+  const all=[],errors=[];
+  for(const ex of exchanges){
+    $("status").textContent=`Getting ${ex} stock list…`;
+    try{
+      budget.spend(1,`${ex} stock-list request`);
+      const j=await apiJson(`https://api.twelvedata.com/stocks?exchange=${encodeURIComponent(ex)}&country=United%20States&apikey=${encodeURIComponent(key)}`);
+      const rows=Array.isArray(j?.data)?j.data:[];
+      for(const x of rows){
+        const sym=String(x.symbol||"").trim().toUpperCase();
+        const type=String(x.type||"").toLowerCase();
+        const currency=String(x.currency||"").toUpperCase();
+        if(sym&&(!type||type.includes("common")||type==="stock")&&(!currency||currency==="USD")&&/^[A-Z0-9][A-Z0-9.\-]{0,14}$/.test(sym)) all.push({sym,exchange:ex});
+      }
+    }catch(e){errors.push(`${ex}: ${e.message||"request failed"}`);}
+  }
+  const map=new Map();for(const x of all)if(!map.has(x.sym))map.set(x.sym,x);
+  const records=[...map.values()];
+  try{localStorage.setItem(UNIVERSE_KEY,JSON.stringify({day:DAY(),records}));}catch{}
+  return {records,errors,cached:false};
+}
+
+function extractBatch(j,symbols){
+  const map={};
+  if(Array.isArray(j?.values)){
+    map[symbols[0]]={rows:normalizeRows(j.values)};
+    return map;
+  }
+  for(const sym of symbols){
+    const candidates=[sym,sym.replace(".","/"),sym.replace("/","."),sym.replace(".","")];
+    let item=null;
+    for(const c of candidates)if(j&&j[c]){item=j[c];break}
+    if(item?.values)map[sym]={rows:normalizeRows(item.values)};
+    else if(item?.status==="error"||item?.message)map[sym]={error:item.message||"No data"};
+    else map[sym]={error:"No data returned"};
+  }
+  return map;
+}
+
+async function getBatchNetwork(symbols,key,outputsize,budget){
+  budget.spend(symbols.length,`${symbols.length}-symbol price-history request`);
+  const url=`https://api.twelvedata.com/time_series?symbol=${symbols.map(encodeURIComponent).join(",")}&interval=1day&outputsize=${outputsize}&apikey=${encodeURIComponent(key)}`;
+  return await apiJson(url);
+}
+
+function getCachedRows(sym,need){
+  const rows=historyCache[sym];
+  return Array.isArray(rows)&&rows.length>=need?rows:null;
+}
+
+async function getHistoryCreditAware(symbols,key,outputsize,budget,{allowFallback=false}={}){
+  const need=Math.min(outputsize,outputsize>=90?55:25),data={},missing=[];
+  for(const sym of symbols){
+    const rows=getCachedRows(sym,need);
+    if(rows){data[sym]={rows};budget.hit();}
+    else missing.push(sym);
+  }
+  if(!missing.length)return {data,mode:"cache"};
+
+  let batchError="";
+  try{
+    const j=await getBatchNetwork(missing,key,outputsize,budget);
+    const parsed=extractBatch(j,missing);
+    let valid=0;
+    for(const sym of missing){
+      const rows=parsed[sym]?.rows||[];
+      if(rows.length){data[sym]={rows};historyCache[sym]=rows;valid++;}
+      else data[sym]={error:parsed[sym]?.error||"No usable price history"};
+    }
+    if(valid>0)return {data,mode:"batch"};
+    batchError=missing.map(sym=>data[sym]?.error).find(Boolean)||"Batch request returned no usable price history";
+  }catch(e){batchError=e.message||"Batch request failed";}
+
+  if(!allowFallback||missing.length===1)throw new Error(batchError);
+
+  let success=0;
+  for(const sym of missing){
+    try{
+      const j=await getBatchNetwork([sym],key,outputsize,budget);
+      const one=extractBatch(j,[sym]);
+      const rows=one[sym]?.rows||[];
+      if(rows.length){data[sym]={rows};historyCache[sym]=rows;success++;}
+      else data[sym]={error:one[sym]?.error||"No usable price history"};
+    }catch(e){data[sym]={error:e.message||"Request failed"};}
+  }
+  if(success===0)throw new Error(batchError||"No usable price history was returned");
+  return {data,mode:"single-fallback"};
+}
+
+async function getMarketCapBatch(symbols,key,budget){
+  const out={},missing=[];
+  for(const sym of symbols){
+    if(capCache[sym]!=null){out[sym]=capCache[sym];budget.hit();}else missing.push(sym);
+  }
+  if(!missing.length)return out;
+  budget.spend(missing.length,`${missing.length}-symbol market-cap request`);
+  const url=`https://api.twelvedata.com/statistics?symbol=${missing.map(encodeURIComponent).join(",")}&apikey=${encodeURIComponent(key)}`;
+  try{
+    const j=await apiJson(url);
+    const readCap=o=>{
+      const candidates=[o?.statistics?.valuations_metrics?.market_capitalization,o?.valuations_metrics?.market_capitalization,o?.market_capitalization,o?.market_cap];
+      for(const v of candidates){const n=Number(String(v??"").replace(/,/g,""));if(Number.isFinite(n)&&n>0)return n}
+      return null;
+    };
+    if(missing.length===1){out[missing[0]]=readCap(j);capCache[missing[0]]=out[missing[0]];return out;}
+    for(const sym of missing){
+      const item=j?.[sym]||j?.[sym.replace(".","/")]||j?.[sym.replace("/",".")];
+      out[sym]=readCap(item);capCache[sym]=out[sym];
+    }
+    return out;
+  }catch(e){
+    console.warn("Market-cap lookup failed",e);
+    for(const sym of missing)out[sym]=null;
+    return out;
+  }
+}
+
+function capTier(cap){
+  if(!cap)return "Unknown";
+  if(cap<300000000)return "Micro cap";
+  if(cap<2000000000)return "Small cap";
+  if(cap<10000000000)return "Mid cap";
+  return "Large cap";
+}
+function tierLiquidityMin(cap,userMin){
+  if(!cap)return Math.min(userMin,1000000);
+  if(cap<300000000)return Math.min(userMin,500000);
+  if(cap<2000000000)return Math.min(userMin,1000000);
+  return userMin;
+}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
+function hashString(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return h>>>0;}
+function rotatingSample(records,count,strategy){
+  if(count>=records.length)return records.slice();
+  const ordered=records.slice().sort((a,b)=>hashString(`${a.sym}|${a.exchange}`)-hashString(`${b.sym}|${b.exchange}`));
+  if(strategy==="front")return ordered.slice(0,count);
+  const dayNumber=Math.floor(Date.now()/86400000);
+  const start=(dayNumber*count)%ordered.length;
+  const out=[];for(let i=0;i<count;i++)out.push(ordered[(start+i)%ordered.length]);
+  return out;
+}
+function quickScore(rows){
+  const c=rows.map(x=>+x.close),v=rows.map(x=>+x.volume||0),p=c.at(-1),s20=sma(c,20),avg20=mean(v.slice(-20));
+  const ret20=c.length>=21?(p/c.at(-21)-1)*100:0,hi20=Math.max(...c.slice(-20)),today=v.at(-1)||0,rv=avg20?today/avg20:0;
+  let q=0;q+=p>s20?15:0;q+=ret20>=15?25:ret20>=8?18:ret20>=3?10:0;q+=p>=hi20*.97?25:p>=hi20*.93?15:p>=hi20*.90?8:0;q+=rv>=2?20:rv>=1.5?14:rv>=1.2?7:0;
+  return q;
+}
+function buildPlan(total,limit,alreadyUsed){
+  if(!limit)return {stage1Cap:Math.min(total,5700),finalistCap:500,safety:0};
+  const remaining=Math.max(0,limit-alreadyUsed);
+  const safety=Math.max(10,Math.floor(limit*.07));
+  const finalistCap=Math.max(8,Math.min(60,Math.floor(limit*.08)));
+  const stage1Cap=Math.max(0,Math.min(total,remaining-safety-(finalistCap*2)));
+  return {stage1Cap,finalistCap,safety};
+}
+
+async function scanSymbols(records,key,budget,opts={}){
+  const results=[],BATCH=5,stage1=[];
+  const selected=records.slice(0,opts.maxSymbols||records.length);
+  const diag={seriesDownloaded:0,batchFailures:0,firstError:"",cacheHitsStart:budget.cacheHits};
+  let batchesSincePersist=0;
+
+  for(let i=0;i<selected.length;i+=BATCH){
+    const batch=selected.slice(i,i+BATCH).map(x=>x.sym);
+    $("status").textContent=`Stage 1: screening ${Math.min(i+BATCH,selected.length)} of ${selected.length} · est. budget ${Number.isFinite(budget.limit)?`${budget.ledger.used}/${budget.limit}`:"uncapped"}…`;
+    let payload;
+    try{payload=await getHistoryCreditAware(batch,key,35,budget,{allowFallback:!!opts.allowFallback});}
+    catch(e){
+      persistCaches();diag.batchFailures++;if(!diag.firstError)diag.firstError=e.message||"Request failed";
+      throw new Error(`Price-history screen stopped. Twelve Data says: ${e.message||"request failed"}. V6 did not retry every symbol individually, preventing a runaway credit burn.`);
+    }
+    for(const sym of batch){
+      const rows=payload.data[sym]?.rows||[];
+      if(rows.length>=25){
+        diag.seriesDownloaded++;
+        try{
+          const c=rows.map(x=>+x.close),v=rows.map(x=>+x.volume||0);
+          const p=c.at(-1),s20=sma(c,20),avgv=mean(v.slice(-20));
+          const dollarVol=avgv*p,ret20=c.length>=21?(p/c.at(-21)-1)*100:0,hi20=Math.max(...c.slice(-20));
+          const broadLiq=Math.min(+$ ("liq").value,500000);
+          if(p>=1&&dollarVol>=broadLiq&&(ret20>=-10||p>=s20*.92)&&p>=hi20*.90)stage1.push({sym,q:quickScore(rows)});
+        }catch(e){console.warn("Could not screen",sym,e);}
+      }
+    }
+    if(++batchesSincePersist>=10){persistCaches();batchesSincePersist=0;}
+    if(i+BATCH<selected.length)await sleep(250);
+  }
+  persistCaches();
+
+  stage1.sort((a,b)=>b.q-a.q);
+  const finalists=[...new Map(stage1.map(x=>[x.sym,x])).values()].slice(0,opts.finalistCap||500).map(x=>x.sym);
+  for(let i=0;i<finalists.length;i+=BATCH){
+    const batch=finalists.slice(i,i+BATCH);
+    $("status").textContent=`Stage 2: deep analysis ${Math.min(i+BATCH,finalists.length)} of ${finalists.length} · est. budget ${Number.isFinite(budget.limit)?`${budget.ledger.used}/${budget.limit}`:"uncapped"}…`;
+    try{
+      const payload=await getHistoryCreditAware(batch,key,90,budget,{allowFallback:!!opts.allowFallback});
+      for(const sym of batch){
+        if(payload.data[sym]?.rows?.length>=55)results.push({sym,rows:payload.data[sym].rows});
+        else results.push({sym,error:payload.data[sym]?.error||"Not enough daily history"});
+      }
+    }catch(e){
+      persistCaches();throw new Error(`Deep-analysis history stopped. ${e.message||"Request failed"}`);
+    }
+    if(i+BATCH<finalists.length)await sleep(300);
+  }
+  persistCaches();
+
+  for(let i=0;i<results.length;i+=BATCH){
+    const slice=results.slice(i,i+BATCH),batch=slice.map(x=>x.sym);
+    $("status").textContent=`Adding market-cap data ${Math.min(i+BATCH,results.length)} of ${results.length} · est. budget ${Number.isFinite(budget.limit)?`${budget.ledger.used}/${budget.limit}`:"uncapped"}…`;
+    const caps=await getMarketCapBatch(batch,key,budget);
+    for(const item of slice)item.marketCap=caps[item.sym]||null;
+    if(i+BATCH<results.length)await sleep(250);
+  }
+  persistCaches();
+  return {results,stage1Count:stage1.length,finalistCount:finalists.length,diag};
+}
+
+function score(rows,marketCap=null){
+  const close=rows.map(x=>+x.close),vol=rows.map(x=>+x.volume||0);
+  const p=close.at(-1),s20=sma(close,20),s50=sma(close,50),r=rsi(close);
+  const hi20=Math.max(...close.slice(-20));
+  const avg20v=mean(vol.slice(-20)),avg90v=mean(vol.slice(-90)),todayVol=vol.at(-1)||0;
+  const rv20=avg20v?todayVol/avg20v:0,volTrend=avg90v?avg20v/avg90v:0,rv90=avg90v?todayVol/avg90v:0;
+  const atrp=p?atr(rows)/p*100:0;
+  const ret20=close.length>=21?(p/close.at(-21)-1)*100:0,ret60=close.length>=61?(p/close.at(-61)-1)*100:0;
+  const dollarVol=avg20v*p,userLiqMin=+$ ("liq").value,liqMin=tierLiquidityMin(marketCap,userLiqMin),risk=$("risk").value,tier=capTier(marketCap);
+  let s=0;
+  s+=s20>s50?20:0;s+=p>s20?10:0;
+  s+=ret20>=15?15:ret20>=8?10:ret20>=3?5:0;
+  s+=ret60>=30?15:ret60>=15?10:ret60>=5?5:0;
+  s+=r>=50&&r<=70?10:r>70?6:r>=40?4:0;
+  s+=p>=hi20*.97?15:p>=hi20*.93?9:0;
+  s+=rv20>=2?8:rv20>=1.5?6:rv20>=1.2?3:0;
+  s+=volTrend>=1.5?7:volTrend>=1.2?5:volTrend>=1.05?2:0;
+  s+=dollarVol>=liqMin?5:0;
+  if(tier==="Small cap")s+=dollarVol>=liqMin&&ret20>=8?5:2;
+  else if(tier==="Micro cap")s+=dollarVol>=liqMin&&ret20>=15&&rv20>=1.5?5:0;
+  else if(tier==="Mid cap")s+=3;
+  else if(tier==="Large cap")s+=2;
+  if(risk==="veryaggressive"){s+=atrp>=4&&atrp<=15?5:0;s+=rv20>=2.5?5:0;}
+  s=Math.min(100,Math.round(s));
+  const category=s>=85?"High-conviction setup":s>=70?"Strong candidate":s>=55?"Speculative":"Watch";
+  return {p,s20,s50,r,hi20,rv:rv20,rv20,rv90,volTrend,avg20v,avg90v,todayVol,atrp,ret20,ret60,dollarVol,marketCap,tier,liqMin,score:s,category};
+}
+
+function showResults(out,min,coverageNote=""){
+  out.sort((a,b)=>(b.score??-1)-(a.score??-1));
+  const good=out.filter(x=>x.score>=min);
+  let h=`<p><b>${good.length}</b> candidates scoring at least ${min}. ${coverageNote}</p>`;
+  if(good.length){
+    h+=`<div style="overflow-x:auto"><table><thead><tr><th>Ticker</th><th>Score</th><th>Setup</th><th>Market cap</th><th>Tier</th><th>Price</th><th>RSI</th><th>20d high</th><th>Rel vol</th><th>ATR%</th></tr></thead><tbody>`;
+    for(const x of good)h+=`<tr><td><b>${x.sym}</b></td><td class="score ${x.score>=70?"good":"warn"}">${x.score}</td><td>${x.category}</td><td>${x.marketCap?"$"+(x.marketCap/1e9).toFixed(x.marketCap>=1e9?2:3)+"B":"—"}</td><td><span class="pill">${x.tier}</span></td><td>$${x.p.toFixed(2)}</td><td>${x.r.toFixed(1)}</td><td>$${x.hi20.toFixed(2)}</td><td>${x.rv.toFixed(2)}x</td><td>${x.atrp.toFixed(1)}%</td></tr>`;
+    h+=`</tbody></table></div>`;
+  }
+  const errors=out.filter(x=>x.error);
+  if(errors.length)h+=`<p class="small"><b>${errors.length} symbols could not be downloaded:</b> ${errors.slice(0,80).map(x=>`${x.sym} (${x.error})`).join(", ")}${errors.length>80?" …":""}</p>`;
+  $("results").innerHTML=h;
+}
+
+$("scan").onclick=async()=>{
+  const btn=$("scan"),key=$("key").value.trim();
+  if(!key){$("status").textContent="Enter a Twelve Data API key first.";return}
+  btn.disabled=true;
+  const limit=+$ ("budget").value,budget=new CreditBudget(limit);
+  try{
+    let records,mode=$("universe").value,totalDiscovered=0,sampledCount=0,rotationDays=1;
+    if(mode==="custom"){
+      const syms=$("custom").value.split(/[\\s,]+/).map(x=>x.trim().toUpperCase()).filter(Boolean);
+      records=[...new Set(syms)].map(sym=>({sym,exchange:"CUSTOM"}));
+    }else if(mode==="market"){
+      $("results").innerHTML="<p>Building or loading today's U.S. stock universe…</p>";
+      const d=await discoverUSStocks(key,budget);
+      records=d.records.filter(x=>!x.sym.includes("/"));totalDiscovered=records.length;
+      if(!records.length)throw new Error("Could not get the U.S. stock list. Check the API key and Twelve Data plan.");
+      const plan=buildPlan(records.length,limit,budget.ledger.used);
+      if(plan.stage1Cap<25)throw new Error(`Not enough estimated V6 budget remains today for a useful market scan. Current estimate: ${budget.ledger.used}/${limit}. Wait for the next provider reset or choose a higher budget only if your Twelve Data plan supports it.`);
+      records=rotatingSample(records,plan.stage1Cap,$("strategy").value);
+      sampledCount=records.length;rotationDays=Math.ceil(totalDiscovered/Math.max(1,sampledCount));
+      var finalistCap=plan.finalistCap;
+    }else{
+      records=UNIVERSES[mode].map(sym=>({sym,exchange:mode.toUpperCase()}));
+    }
+    records=[...new Map(records.map(x=>[x.sym,x])).values()];
+    if(!records.length)throw new Error("No symbols available to scan.");
+
+    if(mode!=="market"){
+      const remaining=budget.remaining();
+      if(Number.isFinite(remaining)&&remaining<records.length+10)throw new Error(`Only about ${remaining} estimated credits remain in V6's daily budget. This scan needs more headroom.`);
+      var finalistCap=Math.min(60,records.length);
+      sampledCount=records.length;totalDiscovered=records.length;
+    }
+
+    $("results").innerHTML="";
+    $("status").textContent=`V6 starting: ${totalDiscovered} discovered → ${sampledCount} selected within today's budget…`;
+    const scanned=await scanSymbols(records,key,budget,{maxSymbols:records.length,finalistCap,allowFallback:limit===0&&mode!=="market"});
+    const out=[];
+    for(const item of scanned.results){
+      if(item.rows){try{out.push({sym:item.sym,...score(item.rows,item.marketCap)})}catch(e){out.push({sym:item.sym,error:e.message||"Could not score data"})}}
+      else out.push({sym:item.sym,error:item.error||"Download failed"});
+    }
+    const coverageNote=mode==="market"?`Today's budgeted rotation screened ${sampledCount} of ${totalDiscovered} discovered stocks; at this setting a full rotation is about ${rotationDays} scan day${rotationDays===1?"":"s"}.`:"";
+    showResults(out,+$("minscore").value,coverageNote);
+    const failed=out.filter(x=>x.error).length;
+    $("status").textContent=`V6 finished: ${totalDiscovered} discovered → ${sampledCount} screened today → ${scanned.stage1Count} passed broad screen → ${scanned.finalistCount} deep-analyzed → ${out.length} scored${failed?` (${failed} data errors)`:""}. Estimated network usage this run: ${budget.usedThisRun()}; same-day cache hits: ${budget.cacheHits}. Daily V6 estimate: ${budget.ledger.used}${Number.isFinite(budget.limit)?`/${budget.limit}`:" (uncapped)"}.`;
+    updateBudgetInfo();
+  }catch(e){
+    persistCaches();console.error(e);
+    const msg=e.message||"Unexpected error";
+    $("status").textContent=`Scan stopped: ${msg}`;
+    $("results").innerHTML=`<p class="bad"><b>V6 stopped safely:</b> ${String(msg).replace(/[&<>\"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'\"':"&quot;"}[c]))}</p><p class="small">The scanner did not fan out into single-symbol retries in budgeted market mode. Twelve Data's own credit meter is authoritative; V6's counter is only a conservative local estimate.</p>`;
+    updateBudgetInfo();
+  }finally{btn.disabled=false}
+};
+</script>
+</body></html>
