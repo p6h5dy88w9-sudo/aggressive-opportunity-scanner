@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://api.twelvedata.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; worker-src 'none'; upgrade-insecure-requests">
+<title>Opportunity Scanner V8.6</title>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--text:#111827;--muted:#64748b;--line:#e2e8f0;--accent:#2563eb;--good:#15803d;--warn:#b45309;--bad:#b91c1c}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{max-width:900px;margin:auto;padding:18px 14px 40px}
+h1{font-size:28px;margin:5px 0}.sub{color:var(--muted);margin:0 0 18px;line-height:1.45}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 2px 10px #00000008}
+label{display:block;font-size:13px;font-weight:700;margin:10px 0 6px}
+input,select,button,textarea{font:inherit}input,select,textarea{width:100%;padding:11px 12px;border:1px solid #cbd5e1;border-radius:10px;background:#fff}
+input[type=file]{padding:9px;background:#f8fafc}
+button{border:0;border-radius:10px;padding:11px 15px;font-weight:700;cursor:pointer}.primary{background:var(--accent);color:white}.secondary{background:#e2e8f0;color:#0f172a}.danger{background:#fee2e2;color:#991b1b}button:disabled{opacity:.55;cursor:not-allowed}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.small{font-size:12px;color:var(--muted);line-height:1.45}.status{margin-top:10px;color:var(--muted);line-height:1.5}.bad{color:var(--bad)}.good{color:var(--good)}.warn{color:var(--warn)}
+.infoBox{margin-top:10px;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#f8fafc;font-size:12px;color:var(--muted);line-height:1.5}
+.snapshotReady{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.snapshotWarn{border-color:#fed7aa;background:#fff7ed;color:#9a3412}
+table{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}th,td{text-align:left;padding:9px 6px;border-bottom:1px solid var(--line);white-space:nowrap}th{font-size:11px;text-transform:uppercase;color:var(--muted)}
+.score{font-weight:800}.pill{display:inline-block;padding:3px 7px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:11px;font-weight:800}
+.kpi{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:10px}.kpi>div{border:1px solid var(--line);border-radius:10px;padding:9px;background:#fff}.kpi b{display:block;font-size:16px}.kpi span{font-size:11px;color:var(--muted)}
+@media(max-width:650px){.row{grid-template-columns:1fr}.kpi{grid-template-columns:1fr 1fr}table{font-size:12px}.card{padding:13px}main{padding:12px 10px 30px}}
+</style>
+<script>if("serviceWorker" in navigator)navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())).catch(()=>{});</script>
+</head>
+<body>
+<main>
+<h1>Opportunity Scanner <span class="pill">V8.6 selected tickers</span></h1>
+<p class="sub">Screen the whole snapshot locally for zero credits, then deep-scan only the strongest finalists with Twelve Data. V8 is paced for the Basic plan's 8-credit-per-minute limit and can resume from its same-day cache.</p>
+
+<div class="card">
+<h3 style="margin:0">1. Daily whole-market snapshot</h3>
+<p class="small">For true same-day coverage on a low API limit, load one fresh bulk U.S.-stock CSV/TSV from a screener or market-data export. The broad screen happens entirely in your browser and costs no Twelve Data credits. V8 will not silently substitute a rotating market sample and call it full-market coverage.</p>
+<label>Snapshot file (CSV or TSV)</label>
+<input id="snapshotFile" type="file" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain">
+<label>Or paste CSV / TSV</label>
+<textarea id="snapshotText" rows="4" placeholder="Ticker,Price,Change %,Volume,Avg Volume,Market Cap\nRKLB,18.42,6.8%,12500000,7200000,8.1B"></textarea>
+<div class="actions"><button class="secondary" id="loadText">Load text pasted above</button><button class="danger" id="clearSnapshot">Clear snapshot</button></div>
+<div class="infoBox" id="snapshotInfo">No snapshot loaded yet. V8 looks for columns such as Symbol/Ticker, Price/Last, Change %, Volume, Average Volume or Relative Volume, and Market Cap.</div>
+</div>
+
+<div class="card">
+<h3 style="margin:0">2. Deep-analysis settings</h3>
+<label>Data provider API key</label>
+<input id="key" type="password" placeholder="Paste your Twelve Data API key" autocomplete="off" autocapitalize="none" spellcheck="false">
+<div class="actions"><button class="secondary" id="clearKey" type="button">Clear API key</button></div>
+<p class="small">The key is kept only in this tab and is removed when the tab closes. V8.6 also deletes the old persistent V8 key entry. Use only the HTTPS GitHub Pages address. In full-market mode, Twelve Data is contacted only after the local snapshot screen has narrowed the market to a small finalist set.</p>
+
+<div class="row">
+<div><label>Risk style</label><select id="risk"><option value="aggressive">Aggressive</option><option value="veryaggressive">Very aggressive</option></select></div>
+<div><label>Minimum liquidity ($/day)</label><select id="liq"><option value="10000000">$10M</option><option value="5000000">$5M</option><option value="1000000">$1M</option></select></div>
+</div>
+<div class="row">
+<div><label>Market-analysis universe</label>
+<select id="universe">
+<option value="snapshot_all">All market caps — full snapshot</option>
+<option value="snapshot_microsmall">Micro + small caps — under $2B</option>
+<option value="snapshot_mid">Mid caps — $2B to $10B</option>
+<option value="snapshot_large">Large caps — $10B and above</option>
+<option value="snapshot_microsmallmid">Micro + small + mid caps — under $10B</option>
+<option value="snapshot_selected">Selected tickers — from market snapshot</option>
+</select></div>
+<div><label>Minimum score</label><select id="minscore"><option>70</option><option>60</option><option>50</option><option>40</option></select></div>
+</div>
+<div id="selectedTickerBox" hidden>
+<label>Tickers to analyze</label>
+<textarea id="selectedTickers" rows="2" placeholder="AAPL, NVDA, RKLB" autocomplete="off" autocapitalize="characters" spellcheck="false"></textarea>
+<p class="small">Enter symbols separated by commas, spaces or new lines. V8.6 finds exact matches in the loaded market snapshot and includes them even when they would not rank among the market's top movers. The finalist limit below is the maximum number analyzed.</p>
+</div>
+<p class="small">Every universe above is built from the uploaded whole-market snapshot. Stage 1 applies the selected cap range or exact ticker list before building the deep-scan finalists.</p>
+<div class="row">
+<div><label>Deep-analysis finalists</label>
+<select id="finalists"><option value="25">25 — lowest API use</option><option value="40" selected>40 — recommended</option><option value="60">60 — broader</option><option value="100">100 — higher API use</option></select></div>
+<div><label>Estimated API budget / day</label>
+<select id="budget"><option value="650">650 — safe target for 800/day</option><option value="500">500 — conservative</option><option value="300">300 — low usage</option><option value="150">150 — test mode</option><option value="0">No scanner cap — paid/high-limit plan</option></select></div>
+</div>
+<label>Deep-scan request pacing</label>
+<select id="rateLimit"><option value="8" selected>Basic safe — 8 credits/minute</option><option value="50">Paid plan — up to 50 credits/minute</option></select>
+<div class="infoBox" id="budgetInfo">V8 estimates API usage before deep analysis. Twelve Data's own meter remains authoritative.</div>
+<div class="actions"><button class="secondary" id="localScan">1 · Screen snapshot (0 credits)</button><button class="primary" id="deepScan" disabled>2 · Run / resume deep scan</button><button class="secondary" id="pauseDeep" disabled>Pause deep scan</button><button class="danger" id="clear">Clear results</button></div>
+<div class="status" id="status">Ready.</div>
+</div>
+
+<div class="card">
+<h3 style="margin:0">How V8 works</h3>
+<p class="small">Stage 1 first applies the selected market-cap range, then ranks same-day price change, relative volume when available, dollar liquidity and cap-tier activity across the loaded snapshot without using the API. Stage 2 makes one 90-day history request per finalist, never uses a Basic-incompatible batch request, waits between requests, and caches every successful symbol. Pausing or reopening V8 lets the deep scan resume without repeating cached history. Market cap from the snapshot is reused; V8 does not spend extra Basic-plan credits trying to fill missing market caps.</p>
+<div id="results"></div>
+</div>
+
+<div class="card">
+<h3 style="margin:0">Portfolio guardrails</h3>
+<ul class="small"><li>Use the scanner to generate candidates, not automatic buy orders.</li><li>Verify earnings, news, valuation and thesis before buying.</li><li>Prefer liquid names and defined risk for options.</li><li>Cap speculative positions so one loss cannot dominate the account.</li></ul>
+</div>
+</main>
+
+<script>
+const VERSION="8.6";
+const UNIVERSE_FOCUS={snapshot_all:"all",snapshot_microsmall:"microsmall",snapshot_mid:"mid",snapshot_large:"large",snapshot_microsmallmid:"microsmallmid",snapshot_selected:"selected"};
+const $=id=>document.getElementById(id);
+const DAY=()=>new Date().toISOString().slice(0,10);
+const HISTORY_KEY="osHistoryCacheV8",SNAPSHOT_KEY="osSnapshotV8",LEDGER_KEY="osCreditLedgerV8",FINALISTS_KEY="osLocalFinalistsV8",RATE_STATE_KEY="osRateStateV8";
+
+localStorage.removeItem("tdkey");
+$("key").value=sessionStorage.getItem("tdkeySession")||"";
+$("key").oninput=()=>{const value=$("key").value.trim();if(value)sessionStorage.setItem("tdkeySession",value);else sessionStorage.removeItem("tdkeySession")};
+$("clearKey").onclick=()=>{$("key").value="";sessionStorage.removeItem("tdkeySession");$("status").textContent="API key cleared from this tab."};
+$("budget").value=localStorage.getItem("osBudgetV8")||"650";
+$("finalists").value=localStorage.getItem("osFinalistsV8")||"40";
+$("rateLimit").value=localStorage.getItem("osRateLimitV8")||"8";
+$("universe").value=localStorage.getItem("osUniverseV8")||"snapshot_all";if(!$("universe").value)$("universe").value="snapshot_all";
+$("selectedTickers").value=localStorage.getItem("osSelectedTickersV8")||"";
+$("budget").onchange=()=>{localStorage.setItem("osBudgetV8",$("budget").value);updateBudgetInfo();};
+$("finalists").onchange=()=>{localStorage.setItem("osFinalistsV8",$("finalists").value);updateBudgetInfo();};
+$("rateLimit").onchange=()=>{localStorage.setItem("osRateLimitV8",$("rateLimit").value);updateBudgetInfo();};
+function invalidateLocalSelection(message){localFinalists=[];localMeta={};localStorage.removeItem(FINALISTS_KEY);$("deepScan").disabled=true;$("status").textContent=message;updateBudgetInfo()}
+function syncSelectedTickerBox(){$("selectedTickerBox").hidden=$("universe").value!=="snapshot_selected"}
+$("universe").onchange=()=>{localStorage.setItem("osUniverseV8",$("universe").value);syncSelectedTickerBox();invalidateLocalSelection("Market-analysis universe changed. Run Stage 1 again to build a new finalist list.")};
+$("selectedTickers").oninput=()=>{localStorage.setItem("osSelectedTickersV8",$("selectedTickers").value);if($("universe").value==="snapshot_selected")invalidateLocalSelection("Selected tickers changed. Run Stage 1 again to match them against the market snapshot.")};
+syncSelectedTickerBox();
+
+function safeJSON(text,fallback){if(text==null||text==="")return fallback;try{const parsed=JSON.parse(text);return parsed==null?fallback:parsed}catch{return fallback}}
+function sameDayStore(key,initial){const obj=safeJSON(localStorage.getItem(key),null);return obj?.day===DAY()&&obj.data?obj.data:initial}
+let historyCache=sameDayStore(HISTORY_KEY,{});
+function persistCaches(){try{localStorage.setItem(HISTORY_KEY,JSON.stringify({day:DAY(),data:historyCache}))}catch{}}
+
+function readLedger(){const l=safeJSON(localStorage.getItem(LEDGER_KEY),null);return l?.day===DAY()?{day:DAY(),used:+l.used||0}:{day:DAY(),used:0}}
+function writeLedger(l){try{localStorage.setItem(LEDGER_KEY,JSON.stringify(l))}catch{}}
+class CreditBudget{
+  constructor(limit){this.limit=limit>0?limit:Infinity;this.ledger=readLedger();this.startUsed=this.ledger.used;this.cacheHits=0}
+  remaining(){return Number.isFinite(this.limit)?Math.max(0,this.limit-this.ledger.used):Infinity}
+  spend(cost,label){cost=Number.isFinite(cost)&&cost>0?cost:0;if(Number.isFinite(this.limit)&&this.ledger.used+cost>this.limit)throw new Error(`V8 budget guard stopped before ${label}. Estimated usage would exceed ${this.limit}; current local estimate is ${this.ledger.used}/${this.limit}.`);this.ledger.used+=cost;writeLedger(this.ledger);updateBudgetInfo()}
+  hit(n=1){this.cacheHits+=n}
+  usedThisRun(){return this.ledger.used-this.startUsed}
+}
+
+function htmlEscape(s){return String(s??"").replace(/[&<>\"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+function mean(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:0}
+function sma(a,n){return mean(a.slice(-n))}
+function rsi(a,n=14){if(a.length<n+1)return 50;let g=0,l=0;for(let i=a.length-n;i<a.length;i++){let d=a[i]-a[i-1];if(d>0)g+=d;else l-=d}if(l===0)return 100;return 100-(100/(1+g/l))}
+function atr(rows,n=14){let trs=[];for(let i=1;i<rows.length;i++){let h=+rows[i].high,l=+rows[i].low,pc=+rows[i-1].close;trs.push(Math.max(h-l,Math.abs(h-pc),Math.abs(l-pc)))}return mean(trs.slice(-n))}
+function normalizeRows(values){if(!Array.isArray(values))return [];return values.filter(x=>x&&x.close!=null).map(x=>({datetime:x.datetime,close:+x.close,high:+x.high,low:+x.low,volume:+x.volume||0})).reverse()}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
+
+async function apiJson(url){const r=await fetch(url);let j=null;try{j=await r.json()}catch{}if(!r.ok||j?.status==="error"){const e=new Error(j?.message||`HTTP ${r.status}`);e.httpStatus=r.status;e.providerCode=j?.code;throw e}return j}
+function getCachedRows(sym,need){const rows=historyCache[sym];return Array.isArray(rows)&&rows.length>=need?rows:null}
+class RateGate{
+  constructor(perMinute){this.perMinute=Math.max(1,+perMinute||8);this.intervalMs=Math.ceil(60000/this.perMinute);const saved=safeJSON(localStorage.getItem(RATE_STATE_KEY),{});this.lastAt=+saved.lastAt||0}
+  async wait(sym){const remaining=Math.max(0,this.intervalMs-(Date.now()-this.lastAt));if(remaining>0){$("status").textContent=`Basic-safe pacing: waiting ${Math.ceil(remaining/1000)}s before ${sym}…`;await sleep(remaining)}this.lastAt=Date.now();try{localStorage.setItem(RATE_STATE_KEY,JSON.stringify({lastAt:this.lastAt}))}catch{}}
+}
+async function getHistorySingle(sym,key,budget,gate,outputsize=90){
+  const cached=getCachedRows(sym,55);if(cached){budget.hit();return {rows:cached,cached:true}}
+  for(let attempt=1;attempt<=2;attempt++){
+    budget.spend(1,`${sym} 90-day history request`);await gate.wait(sym);
+    try{const url=`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(sym)}&interval=1day&outputsize=${outputsize}&apikey=${encodeURIComponent(key)}`,j=await apiJson(url),rows=normalizeRows(j?.values);if(rows.length<55)return {error:`Only ${rows.length} daily rows returned`};historyCache[sym]=rows;persistCaches();updateBudgetInfo();return {rows,cached:false}}
+    catch(e){const msg=e.message||"History request failed",daily=/out of API credits for the day|daily (?:credit |usage )?limit|wait for the next day/i.test(msg);if(daily){const fatal=new Error(`Twelve Data's daily API allowance is exhausted. V8 stopped at ${sym} and kept every successful history response cached.`);fatal.dailyLimit=true;throw fatal}const limited=e.httpStatus===429||+e.providerCode===429||/rate limit|too many requests|credits? for the minute/i.test(msg);if(limited&&attempt<2){$("status").textContent=`Twelve Data minute limit reached at ${sym}; waiting 65s, then retrying once…`;await sleep(65000);continue}return {error:msg}}
+  }
+  return {error:"History request failed"};
+}
+
+function parseNumberLike(v){
+  if(v==null)return null;let s=String(v).trim();if(!s||/^(n\/?a|na|--|—|-)$/.test(s.toLowerCase()))return null;
+  let neg=false;if(/^\(.*\)$/.test(s)){neg=true;s=s.slice(1,-1)}s=s.replace(/[$,%\s]/g,"").replace(/,/g,"");
+  const m=s.match(/^([-+]?\d*\.?\d+)([kmbt])?$/i);if(!m)return Number.isFinite(+s)?+s:null;
+  let n=+m[1],u=(m[2]||"").toUpperCase();if(u==="K")n*=1e3;else if(u==="M")n*=1e6;else if(u==="B")n*=1e9;else if(u==="T")n*=1e12;return neg?-n:n;
+}
+function normalizeHeader(h){return String(h||"").toLowerCase().replace(/%/g," percent ").replace(/[^a-z0-9]+/g," ").trim()}
+function findColumn(headers,aliases){const norm=headers.map(normalizeHeader);for(const a of aliases){const i=norm.indexOf(normalizeHeader(a));if(i>=0)return i}return -1}
+function detectDelimiter(line){const candidates=["\t",",",";","|"];let best=",",max=-1;for(const d of candidates){let count=0,inQ=false;for(let i=0;i<line.length;i++){const c=line[i];if(c==='"'){if(inQ&&line[i+1]==='"')i++;else inQ=!inQ}else if(c===d&&!inQ)count++}if(count>max){max=count;best=d}}return best}
+function parseDelimited(text){
+  const clean=String(text||"").replace(/^\uFEFF/,"").trim();if(!clean)return [];
+  const first=clean.split(/\r?\n/,1)[0],delim=detectDelimiter(first),rows=[];let row=[],field="",inQ=false;
+  for(let i=0;i<clean.length;i++){const c=clean[i];if(inQ){if(c==='"'&&clean[i+1]==='"'){field+='"';i++}else if(c==='"')inQ=false;else field+=c}else{if(c==='"')inQ=true;else if(c===delim){row.push(field);field=""}else if(c==='\n'){row.push(field.replace(/\r$/,"").trim());rows.push(row);row=[];field=""}else field+=c}}
+  row.push(field.replace(/\r$/,"").trim());rows.push(row);return rows.filter(r=>r.some(x=>String(x).trim()!==""));
+}
+function parseSnapshot(text){
+  const rows=parseDelimited(text);if(rows.length<2)throw new Error("Snapshot needs a header row and at least one stock row.");
+  const h=rows[0].map(x=>String(x).trim());
+  const idx={
+    sym:findColumn(h,["symbol","ticker","ticker symbol","security symbol"]),
+    price:findColumn(h,["price","last","last sale","last price","close"]),
+    change:findColumn(h,["change percent","percent change","change %","change","day change percent"]),
+    volume:findColumn(h,["volume","current volume","day volume","vol"]),
+    avgVolume:findColumn(h,["average volume","avg volume","avg vol","20 day average volume","average volume 20d","volume average","avg volume 3m"]),
+    relVolume:findColumn(h,["relative volume","rel volume","relative vol","rel vol","relative volume at time"]),
+    marketCap:findColumn(h,["market cap","market capitalization","market capitalisation","mkt cap","market cap basic"]),
+    exchange:findColumn(h,["exchange","primary exchange","listing exchange"])
+  };
+  if(idx.sym<0)throw new Error(`Could not find a Symbol/Ticker column. Headers found: ${h.slice(0,12).join(", ")}`);
+  if(idx.price<0)throw new Error(`Could not find a Price/Last column. Headers found: ${h.slice(0,12).join(", ")}`);
+  const out=[];
+  for(const r of rows.slice(1)){
+    const sym=String(r[idx.sym]||"").trim().toUpperCase().replace(/^NASDAQ:|^NYSE:|^AMEX:/,"");if(!/^[A-Z0-9][A-Z0-9.\-]{0,14}$/.test(sym))continue;
+    const price=parseNumberLike(r[idx.price]);if(!(price>0))continue;
+    let changePct=idx.change>=0?parseNumberLike(r[idx.change]):null;
+    const volume=idx.volume>=0?parseNumberLike(r[idx.volume]):null,avgVolume=idx.avgVolume>=0?parseNumberLike(r[idx.avgVolume]):null;
+    let relVolume=idx.relVolume>=0?parseNumberLike(r[idx.relVolume]):null;if(!(relVolume>0)&&volume>0&&avgVolume>0)relVolume=volume/avgVolume;
+    const marketCap=idx.marketCap>=0?parseNumberLike(r[idx.marketCap]):null,exchange=idx.exchange>=0?String(r[idx.exchange]||"").trim():"";
+    out.push({sym,price,changePct:Number.isFinite(changePct)?changePct:null,volume:volume>0?volume:null,avgVolume:avgVolume>0?avgVolume:null,relVolume:relVolume>0?relVolume:null,marketCap:marketCap>0?marketCap:null,exchange});
+  }
+  const unique=[...new Map(out.map(x=>[x.sym,x])).values()];if(!unique.length)throw new Error(`No usable symbols were parsed. Check the export columns and delimiter.`);
+  return {records:unique,headers:h,columns:idx};
+}
+
+let snapshotRecords=[],localFinalists=[],localMeta={};
+function loadSavedSnapshot(){const s=safeJSON(localStorage.getItem(SNAPSHOT_KEY),null);if(s?.day===DAY()&&Array.isArray(s.records)&&s.records.length){snapshotRecords=s.records;showSnapshotInfo(s.records,s.loadedAt||null,true)}}
+function saveSnapshot(records){const payload={day:DAY(),loadedAt:new Date().toISOString(),records};try{localStorage.setItem(SNAPSHOT_KEY,JSON.stringify(payload))}catch(e){console.warn("Snapshot too large to cache",e)}showSnapshotInfo(records,payload.loadedAt,false)}
+function selectedTickerList(){return [...new Set($("selectedTickers").value.toUpperCase().split(/[\s,;]+/).map(x=>x.trim()).filter(Boolean))]}
+function selectedTickerSignature(){return selectedTickerList().join(",")}
+function saveLocalSelection(){try{localStorage.setItem(FINALISTS_KEY,JSON.stringify({day:DAY(),universe:$("universe").value,selected:$("universe").value==="snapshot_selected"?selectedTickerSignature():"",finalists:localFinalists,meta:localMeta}))}catch(e){console.warn("Could not cache local finalists",e)}}
+function loadLocalSelection(){const saved=safeJSON(localStorage.getItem(FINALISTS_KEY),null),selectedMatches=$("universe").value!=="snapshot_selected"||saved?.selected===selectedTickerSignature();if(saved?.day===DAY()&&saved?.universe===$("universe").value&&selectedMatches&&Array.isArray(saved.finalists)&&saved.finalists.length){localFinalists=saved.finalists;localMeta=saved.meta||{};$("deepScan").disabled=false;$('status').textContent=`Ready to resume: ${localFinalists.length} locally selected finalists; ${localFinalists.filter(x=>getCachedRows(x.sym,55)).length} already cached.`;showLocalResults(localFinalists,localMeta,true)}}
+function snapshotCompleteness(records){const n=records.length||1;return {change:records.filter(x=>Number.isFinite(x.changePct)).length/n,volume:records.filter(x=>x.volume>0).length/n,rel:records.filter(x=>x.relVolume>0).length/n,cap:records.filter(x=>x.marketCap>0).length/n}}
+function showSnapshotInfo(records,loadedAt,cached){
+  const c=snapshotCompleteness(records),full=records.length>=3000;const el=$("snapshotInfo");el.className=`infoBox ${full?"snapshotReady":"snapshotWarn"}`;
+  const t=loadedAt?new Date(loadedAt).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"}):"now";
+  el.innerHTML=`<b>${records.length.toLocaleString()} symbols loaded</b> ${cached?"from today's saved snapshot":"at "+t}. ${full?"This is large enough for broad U.S.-market coverage if your export itself covers the market.":"This is a partial snapshot; V8 will scan every loaded row but cannot call it full-market coverage."}<br>Data completeness: change ${(c.change*100).toFixed(0)}%, volume ${(c.volume*100).toFixed(0)}%, relative volume ${(c.rel*100).toFixed(0)}%, market cap ${(c.cap*100).toFixed(0)}%.`;
+}
+async function loadSnapshotText(text){const parsed=parseSnapshot(text);snapshotRecords=parsed.records;saveSnapshot(snapshotRecords);$("status").textContent=`Snapshot ready: ${snapshotRecords.length.toLocaleString()} symbols will be screened locally.`;return parsed}
+$("snapshotFile").onchange=async e=>{const f=e.target.files?.[0];if(!f)return;try{await loadSnapshotText(await f.text())}catch(err){$("snapshotInfo").className="infoBox snapshotWarn";$("snapshotInfo").innerHTML=`<b>Could not load snapshot:</b> ${htmlEscape(err.message)}`}};
+$("loadText").onclick=async()=>{try{await loadSnapshotText($("snapshotText").value)}catch(err){$("snapshotInfo").className="infoBox snapshotWarn";$("snapshotInfo").innerHTML=`<b>Could not load snapshot:</b> ${htmlEscape(err.message)}`}};
+$("clearSnapshot").onclick=()=>{snapshotRecords=[];localFinalists=[];localMeta={};localStorage.removeItem(SNAPSHOT_KEY);localStorage.removeItem(FINALISTS_KEY);$("snapshotFile").value="";$("snapshotText").value="";$("snapshotInfo").className="infoBox";$("snapshotInfo").textContent="No snapshot loaded yet.";$("deepScan").disabled=true};
+loadSavedSnapshot();
+
+function capTier(cap){if(!cap)return "Unknown";if(cap<300000000)return "Micro cap";if(cap<2000000000)return "Small cap";if(cap<10000000000)return "Mid cap";return "Large cap"}
+function capFocusLabel(focus){return ({all:"All market caps",microsmall:"Micro + small caps",mid:"Mid caps",large:"Large caps",microsmallmid:"Micro + small + mid caps",selected:"Selected tickers"})[focus]||"All market caps"}
+function capMatches(cap,focus){if(focus==="all")return true;if(!(cap>0))return false;if(focus==="microsmall")return cap<2000000000;if(focus==="mid")return cap>=2000000000&&cap<10000000000;if(focus==="large")return cap>=10000000000;if(focus==="microsmallmid")return cap<10000000000;return true}
+function tierLiquidityMin(cap,userMin){if(!cap)return Math.min(userMin,500000);if(cap<300000000)return Math.min(userMin,250000);if(cap<2000000000)return Math.min(userMin,500000);if(cap<10000000000)return Math.min(userMin,2000000);return userMin}
+function snapshotQuickScore(x,userMin){
+  const change=Number.isFinite(x.changePct)?x.changePct:0,rv=x.relVolume||0,liq=(x.avgVolume||x.volume||0)*x.price,minLiq=tierLiquidityMin(x.marketCap,userMin),tier=capTier(x.marketCap);
+  if(x.price<1||liq<minLiq)return null;
+  let q=0;
+  q+=change>=15?32:change>=8?27:change>=5?22:change>=2?14:change>=0?5:change>=-2?2:0;
+  q+=rv>=4?32:rv>=3?28:rv>=2?22:rv>=1.5?15:rv>=1.2?8:rv>0?2:0;
+  q+=liq>=25000000?12:liq>=10000000?10:liq>=2000000?7:liq>=500000?4:2;
+  if(tier==="Small cap"&&change>=3&&(rv>=1.3||!x.relVolume))q+=8;
+  if(tier==="Micro cap"&&change>=5&&(rv>=1.5||!x.relVolume))q+=10;
+  if(!Number.isFinite(x.changePct))q-=8;if(!x.relVolume)q-=5;
+  return {q,liq,tier};
+}
+function broadScreenSnapshot(records,userMin,finalistCap,focus="all"){
+  const ranked=[],requested=focus==="selected"?selectedTickerList():[],selectedSet=new Set(requested),selectedOrder=new Map(requested.map((sym,i)=>[sym,i]));
+  for(const x of records){
+    if(focus==="selected"){if(!selectedSet.has(x.sym))continue;const s=snapshotQuickScore(x,userMin),liq=(x.avgVolume||x.volume||0)*(x.price||0);ranked.push({...x,...(s||{q:0,liq,tier:capTier(x.marketCap)})});continue}
+    if(!capMatches(x.marketCap,focus))continue;const s=snapshotQuickScore(x,userMin);if(s)ranked.push({...x,...s});
+  }
+  if(focus==="selected")ranked.sort((a,b)=>(selectedOrder.get(a.sym)??Infinity)-(selectedOrder.get(b.sym)??Infinity));
+  else ranked.sort((a,b)=>b.q-a.q||((b.changePct||0)-(a.changePct||0))||((b.relVolume||0)-(a.relVolume||0)));
+  const foundSet=new Set(ranked.map(x=>x.sym));
+  return {ranked,finalists:ranked.slice(0,Math.min(finalistCap,ranked.length)),requested,missing:requested.filter(sym=>!foundSet.has(sym))};
+}
+
+function score(rows,marketCap=null){
+  const close=rows.map(x=>+x.close),vol=rows.map(x=>+x.volume||0),p=close.at(-1),s20=sma(close,20),s50=sma(close,50),r=rsi(close),hi20=Math.max(...close.slice(-20));
+  const avg20v=mean(vol.slice(-20)),avg90v=mean(vol.slice(-90)),todayVol=vol.at(-1)||0,rv20=avg20v?todayVol/avg20v:0,volTrend=avg90v?avg20v/avg90v:0,rv90=avg90v?todayVol/avg90v:0,atrp=p?atr(rows)/p*100:0;
+  const ret20=close.length>=21?(p/close.at(-21)-1)*100:0,ret60=close.length>=61?(p/close.at(-61)-1)*100:0,dollarVol=avg20v*p,userLiqMin=+$("liq").value,liqMin=tierLiquidityMin(marketCap,userLiqMin),risk=$("risk").value,tier=capTier(marketCap);
+  let s=0;s+=s20>s50?20:0;s+=p>s20?10:0;s+=ret20>=15?15:ret20>=8?10:ret20>=3?5:0;s+=ret60>=30?15:ret60>=15?10:ret60>=5?5:0;s+=r>=50&&r<=70?10:r>70?6:r>=40?4:0;s+=p>=hi20*.97?15:p>=hi20*.93?9:0;s+=rv20>=2?8:rv20>=1.5?6:rv20>=1.2?3:0;s+=volTrend>=1.5?7:volTrend>=1.2?5:volTrend>=1.05?2:0;s+=dollarVol>=liqMin?5:0;
+  if(tier==="Small cap")s+=dollarVol>=liqMin&&ret20>=8?5:2;else if(tier==="Micro cap")s+=dollarVol>=liqMin&&ret20>=15&&rv20>=1.5?5:0;else if(tier==="Mid cap")s+=3;else if(tier==="Large cap")s+=2;if(risk==="veryaggressive"){s+=atrp>=4&&atrp<=15?5:0;s+=rv20>=2.5?5:0}
+  s=Math.min(100,Math.round(s));const category=s>=85?"High-conviction setup":s>=70?"Strong candidate":s>=55?"Speculative":"Watch";
+  return {p,s20,s50,r,hi20,rv:rv20,rv20,rv90,volTrend,avg20v,avg90v,todayVol,atrp,ret20,ret60,dollarVol,marketCap,tier,liqMin,score:s,category};
+}
+
+let deepScanRunning=false,deepScanPauseRequested=false;
+async function deepAnalyze(finalists,key,budget,gate){
+  const rowsOut=[];deepScanPauseRequested=false;
+  for(let i=0;i<finalists.length;i++){
+    if(deepScanPauseRequested)break;
+    const x=finalists[i],cached=!!getCachedRows(x.sym,55);$("status").textContent=`Deep scan ${i+1} of ${finalists.length}: ${x.sym}${cached?" (cache)":""} · local estimate ${Number.isFinite(budget.limit)?`${budget.ledger.used}/${budget.limit}`:"uncapped"}…`;
+    const data=await getHistorySingle(x.sym,key,budget,gate,90);if(data.rows)rowsOut.push({...x,rows:data.rows});else rowsOut.push({...x,error:data.error||"Not enough daily history"});
+  }
+  return {items:rowsOut,paused:deepScanPauseRequested};
+}
+
+function formatCap(cap){if(!(cap>0))return "—";if(cap>=1e12)return `$${(cap/1e12).toFixed(2)}T`;if(cap>=1e9)return `$${(cap/1e9).toFixed(2)}B`;if(cap>=1e6)return `$${(cap/1e6).toFixed(0)}M`;return `$${Math.round(cap).toLocaleString()}`}
+function showLocalResults(finalists,meta={},restored=false){
+  let h=`<div class="kpi"><div><b>${(meta.loaded||0).toLocaleString()}</b><span>snapshot rows</span></div><div><b>${(meta.broad||0).toLocaleString()}</b><span>${meta.selectedMode?"matched selection":"passed local screen"}</span></div><div><b>${finalists.length}</b><span>deep-scan finalists</span></div><div><b>0</b><span>Stage 1 credits</span></div></div>`;
+  if(meta.coverage)h+=`<p class="small">${htmlEscape(meta.coverage)}</p>`;if(restored)h+=`<p class="small">Restored today's finalist list. Cached history will be reused automatically.</p>`;
+  h+=`<div style="overflow-x:auto"><table><thead><tr><th>Rank</th><th>Ticker</th><th>Local score</th><th>Change</th><th>Rel vol</th><th>Dollar volume</th><th>Market cap</th><th>Tier</th></tr></thead><tbody>`;
+  finalists.forEach((x,i)=>{h+=`<tr><td>${i+1}</td><td><b>${htmlEscape(x.sym)}</b></td><td class="score">${Math.round(x.q??0)}</td><td>${Number.isFinite(x.changePct)?`${x.changePct.toFixed(2)}%`:"—"}</td><td>${x.relVolume?`${x.relVolume.toFixed(2)}x`:"—"}</td><td>$${Math.round(x.liq||0).toLocaleString()}</td><td>${formatCap(x.marketCap)}</td><td>${htmlEscape(x.tier||capTier(x.marketCap))}</td></tr>`});
+  h+=`</tbody></table></div><p class="small">Review the finalists above, then run the deep scan. Symbols already completed today are read from cache at zero additional estimated credits.</p>`;$("results").innerHTML=h;
+}
+function showResults(out,min,meta={}){
+  out.sort((a,b)=>(b.score??-1)-(a.score??-1));const good=out.filter(x=>x.score>=min),errors=out.filter(x=>x.error),display=meta.selectedMode?out.filter(x=>!x.error):good;
+  let h=`<div class="kpi"><div><b>${(meta.loaded||0).toLocaleString()}</b><span>snapshot rows</span></div><div><b>${(meta.broad||0).toLocaleString()}</b><span>${meta.selectedMode?"matched selection":"passed local screen"}</span></div><div><b>${meta.deep||0}</b><span>deep analyzed</span></div><div><b>${good.length}</b><span>score ≥ ${min}</span></div></div>`;
+  if(meta.coverage)h+=`<p class="small">${htmlEscape(meta.coverage)}</p>`;
+  if(meta.selectedMode)h+=`<p class="small">Selected-ticker mode shows every successfully analyzed symbol. The minimum score still determines which results count as candidates.</p>`;
+  if(display.length){h+=`<div style="overflow-x:auto"><table><thead><tr><th>Ticker</th><th>Score</th><th>Setup</th><th>Market cap</th><th>Tier</th><th>Price</th><th>RSI</th><th>20d high</th><th>Rel vol</th><th>ATR%</th></tr></thead><tbody>`;for(const x of display)h+=`<tr><td><b>${htmlEscape(x.sym)}</b></td><td class="score ${x.score>=70?"good":"warn"}">${x.score}</td><td>${htmlEscape(x.category)}</td><td>${formatCap(x.marketCap)}</td><td><span class="pill">${htmlEscape(x.tier)}</span></td><td>$${x.p.toFixed(2)}</td><td>${x.r.toFixed(1)}</td><td>$${x.hi20.toFixed(2)}</td><td>${x.rv.toFixed(2)}x</td><td>${x.atrp.toFixed(1)}%</td></tr>`;h+=`</tbody></table></div>`}else h+=`<p>No candidates met the selected score after deep analysis.</p>`;
+  if(errors.length)h+=`<p class="small"><b>${errors.length} finalists had data errors:</b> ${errors.slice(0,50).map(x=>`${htmlEscape(x.sym)} (${htmlEscape(x.error)})`).join(", ")}${errors.length>50?" …":""}</p>`;$("results").innerHTML=h;
+}
+
+function updateBudgetInfo(){const limit=+$("budget").value,ledger=readLedger(),selectedCount=$("universe").value==="snapshot_selected"?selectedTickerList().length:0,count=localFinalists.length||(selectedCount?Math.min(selectedCount,+$("finalists").value):+$("finalists").value),rate=+$("rateLimit").value||8,cached=localFinalists.filter(x=>getCachedRows(x.sym,55)).length,needed=Math.max(0,count-cached),minutes=needed?Math.max(1,Math.ceil(needed/rate)):0,cap=limit>0?`${ledger.used} / ${limit}`:`${ledger.used} / uncapped`;$("budgetInfo").innerHTML=`V8 UTC-day estimate: <b>${cap}</b>. Stage 1 costs <b>0</b> credits. The current deep scan needs about <b>${needed}</b> new history credits (${cached} cached) and approximately <b>${minutes} minute${minutes===1?"":"s"}</b> at ${rate} credits/minute. No batch or extra market-cap request is used. Twelve Data's meter remains authoritative.`}
+updateBudgetInfo();
+$("clear").onclick=()=>{$("results").innerHTML="";$("status").textContent="Ready."};
+
+function runLocalScreen(){
+  const mode=$("universe").value,finalistCap=+$("finalists").value,userMin=+$("liq").value,focus=UNIVERSE_FOCUS[mode]||"all",selectedMode=focus==="selected";let finalists=[],broadCount=0,loaded=0,coverage="";
+  if(!snapshotRecords.length)throw new Error("Load a fresh whole-market CSV/TSV snapshot first. Every V8.6 universe is built from that market snapshot.");
+  if(selectedMode&&!selectedTickerList().length)throw new Error("Enter at least one ticker in Selected tickers mode, such as AAPL or NVDA.");
+  loaded=snapshotRecords.length;$("status").textContent=`Stage 1: screening ${loaded.toLocaleString()} snapshot rows locally for ${capFocusLabel(focus)} — 0 API credits…`;
+  const broad=broadScreenSnapshot(snapshotRecords,userMin,finalistCap,focus);broadCount=broad.ranked.length;finalists=broad.finalists;
+  coverage=loaded>=3000?`Local Stage 1 checked every one of the ${loaded.toLocaleString()} loaded rows. Actual market completeness depends on the supplied snapshot.`:`Only ${loaded.toLocaleString()} rows were loaded, so this is partial-market coverage.`;
+  coverage+=` Market-analysis universe: ${capFocusLabel(focus)}.`;
+  if(selectedMode){coverage+=` Matched ${broad.ranked.length} of ${broad.requested.length} requested ticker${broad.requested.length===1?"":"s"}.`;if(broad.missing.length)coverage+=` Not found in this snapshot: ${broad.missing.join(", ")}.`;if(broad.ranked.length>finalistCap)coverage+=` The first ${finalistCap} matches were retained because of the finalist limit.`}
+  else if(focus!=="all")coverage+=" Rows without market-cap data were excluded.";
+  if(!finalists.length)throw new Error(selectedMode?`None of the requested tickers were found in the loaded market snapshot: ${broad.requested.join(", ")}.`:"No symbols passed the local screen. Check Price, Change and Volume data, or lower the liquidity setting.");
+  localFinalists=finalists;localMeta={loaded,broad:broadCount,coverage,selectedMode};saveLocalSelection();showLocalResults(localFinalists,localMeta,false);$("deepScan").disabled=false;
+  $("status").textContent=selectedMode?`Stage 1 complete: matched ${broadCount} selected ticker${broadCount===1?"":"s"} in ${loaded.toLocaleString()} snapshot rows → ${localFinalists.length} deep-scan finalist${localFinalists.length===1?"":"s"}. API credits used: 0.`:`Stage 1 complete: ${loaded.toLocaleString()} rows screened locally → ${broadCount.toLocaleString()} survivors → ${localFinalists.length} deep-scan finalists. API credits used: 0.`;updateBudgetInfo();
+}
+
+$("localScan").onclick=()=>{try{runLocalScreen()}catch(e){const msg=e.message||"Local screen failed";$("status").textContent=msg;$("results").innerHTML=`<p class="bad"><b>Local screen stopped:</b> ${htmlEscape(msg)}</p>`}};
+$("pauseDeep").onclick=()=>{if(deepScanRunning){deepScanPauseRequested=true;$("status").textContent="Pause requested. V8 will stop after the current symbol and keep completed history cached."}};
+$("deepScan").onclick=async()=>{
+  const btn=$("deepScan"),pause=$("pauseDeep"),key=$("key").value.trim(),limit=+$("budget").value,budget=new CreditBudget(limit),rate=+$("rateLimit").value||8;
+  if(!key){$("status").textContent="Enter a Twelve Data API key first.";return}if(!localFinalists.length){$("status").textContent="Run the zero-credit local screen first.";return}if(deepScanRunning)return;
+  const needed=localFinalists.filter(x=>!getCachedRows(x.sym,55)).length;if(Number.isFinite(budget.limit)&&budget.remaining()<needed){$("status").textContent=`About ${budget.remaining()} estimated credits remain in V8's UTC-day budget, but ${needed} uncached finalists remain. Reduce finalists or wait for the provider reset.`;return}
+  deepScanRunning=true;btn.disabled=true;pause.disabled=false;
+  try{
+    $("results").innerHTML=`<p>Deep scan started for <b>${localFinalists.length}</b> finalists. ${needed} need a new single-symbol Twelve Data request; ${localFinalists.length-needed} are already cached. Keep this page open, or pause and resume later.</p>`;const gate=new RateGate(rate),deep=await deepAnalyze(localFinalists,key,budget,gate),out=[];
+    for(const item of deep.items){if(item.rows){try{out.push({sym:item.sym,...score(item.rows,item.marketCap)})}catch(e){out.push({sym:item.sym,error:e.message||"Could not score data"})}}else out.push({sym:item.sym,error:item.error||"Download failed"})}
+    showResults(out,+$("minscore").value,{loaded:localMeta.loaded,broad:localMeta.broad,deep:deep.items.filter(x=>x.rows).length,coverage:localMeta.coverage,selectedMode:localMeta.selectedMode});
+    if(deep.paused)$("status").textContent=`Deep scan paused safely: ${deep.items.length} of ${localFinalists.length} processed in this pass. Completed history is cached; tap Run / resume deep scan to continue.`;else $("status").textContent=`V8 finished: ${(localMeta.loaded||0).toLocaleString()} locally screened → ${(localMeta.broad||0).toLocaleString()} broad survivors → ${localFinalists.length} finalists → ${out.filter(x=>!x.error).length} scored. Estimated credits this run: ${budget.usedThisRun()}; cache hits: ${budget.cacheHits}. UTC-day V8 estimate: ${budget.ledger.used}${Number.isFinite(budget.limit)?`/${budget.limit}`:" (uncapped)"}.`;
+    updateBudgetInfo();
+  }catch(e){persistCaches();console.error(e);const msg=e.message||"Unexpected error";$("status").textContent=`Deep scan stopped: ${msg}`;$("results").innerHTML=e.dailyLimit?`<p class="bad"><b>Daily provider limit reached.</b> The deep scan stopped immediately instead of retrying the remaining finalists.</p><p class="small">Completed symbols remain cached. Run / resume after Twelve Data resets the daily allowance.</p>`:`<p class="bad"><b>V8 stopped safely:</b> ${htmlEscape(msg)}</p><p class="small">Completed symbols remain cached. V8 uses single-symbol requests and does not fan out into Basic-incompatible batches. Twelve Data's official credit meter is authoritative.</p>`;updateBudgetInfo()}finally{deepScanRunning=false;pause.disabled=true;btn.disabled=!localFinalists.length}
+};
+loadLocalSelection();
+</script>
+</body></html>
